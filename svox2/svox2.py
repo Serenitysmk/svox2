@@ -713,16 +713,16 @@ class SparseGrid(nn.Module):
         while good_indices.numel() > 0:
             pos = origins + t[:, None] * dirs
             pos = pos.clamp_min_(0.0)
-            pos[:, 0] = torch.clamp_max(pos[:, 0], gsz[0] - 1)
-            pos[:, 1] = torch.clamp_max(pos[:, 1], gsz[1] - 1)
-            pos[:, 2] = torch.clamp_max(pos[:, 2], gsz[2] - 1)
+            pos[:, 0] = torch.clamp_max(pos[:, 0], gsz_cu[0] - 1)
+            pos[:, 1] = torch.clamp_max(pos[:, 1], gsz_cu[1] - 1)
+            pos[:, 2] = torch.clamp_max(pos[:, 2], gsz_cu[2] - 1)
             #  print('pym', pos, log_light_intensity)
 
             l = pos.to(torch.long)
             l.clamp_min_(0)
-            l[:, 0] = torch.clamp_max(l[:, 0], gsz[0] - 2)
-            l[:, 1] = torch.clamp_max(l[:, 1], gsz[1] - 2)
-            l[:, 2] = torch.clamp_max(l[:, 2], gsz[2] - 2)
+            l[:, 0] = torch.clamp_max(l[:, 0], gsz_cu[0] - 2)
+            l[:, 1] = torch.clamp_max(l[:, 1], gsz_cu[1] - 2)
+            l[:, 2] = torch.clamp_max(l[:, 2], gsz_cu[2] - 2)
             pos -= l
 
             # BEGIN CRAZY TRILERP

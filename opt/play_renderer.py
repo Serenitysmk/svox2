@@ -1,5 +1,6 @@
 import torch
 import svox2
+from svox2.utils import eval_sh_bases
 import os
 from os import path
 import argparse
@@ -16,6 +17,13 @@ from typing import Union, Optional
 def render_unw_image(grid: svox2.SparseGrid, camera: svox2.Camera, device=Union[torch.device, str], sigma_thresh: Optional[float] = None, batch_size: int = 5000) -> torch.Tensor:
     grid.to(device)
     rays = cam.gen_rays()
+    dirs = rays.dirs / torch.norm(rays.dirs, dim=-1, keepdim=True)
+    # viewdirs = dirs
+    # gsz = grid._grid_size()
+    # dirs = dirs * (grid._scaling * gsz).to(device=dirs.device)
+    # delta_scale = 1.0 / dirs.norm(dim=1)
+    # dirs *= delta_scale.unsqueeze(-1)
+    sh_mult = eval_sh_bases(grid.basis_dim, dirs)
     all_depths = []
     for batch_start in range(0, camera.height * camera.width, batch_size):
         depths = grid.volume_render_depth(rays[batch_start: batch_start+ batch_size], sigma_thresh)
@@ -24,14 +32,15 @@ def render_unw_image(grid: svox2.SparseGrid, camera: svox2.Camera, device=Union[
     
     pts = rays.origins + rays.dirs * all_depths[..., None]
     samples_sigma, samples_rgb = grid.sample(pts, use_kernel=True)
-    samples_rgb = samples_rgb.reshape(-1, 3, 9)
-    rgb = samples_rgb.sum(dim=-1)
-
-    print(samples_sigma)
-    
+    rgb_sh = samples_rgb.reshape(-1, 3, grid.basis_dim)
+    rgb = torch.clamp_min(torch.sum(sh_mult.unsqueeze(-2) * rgb_sh, dim=-1) + 0.5, 0.0)
+        
 
     print(f'samples_rgb shape: {samples_rgb.shape}')
     return rgb.view(camera.height, camera.width, -1)
+
+def gen_rays(camera: svox2.Camera)-> svox2.Rays:
+    pass
 
 parser = argparse.ArgumentParser()
 parser.add_argument('ckpt', type=str)
