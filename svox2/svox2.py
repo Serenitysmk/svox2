@@ -1,5 +1,5 @@
-from .defs import *
-from . import utils
+from defs import *
+import utils # MSHE Note that if you want to run directly from this script, you have to remove `.` in the beginning
 import torch
 from torch import nn, autograd
 import torch.nn.functional as F
@@ -1156,7 +1156,7 @@ class SparseGrid(nn.Module):
         :return: (H, W, 3), predicted RGB image
         """
         imrend_fn_name = f"volume_render_{self.opt.backend}_image"
-        if self.basis_type != BASIS_TYPE_MLP and imrend_fn_name in _C.__dict__ and not torch.is_grad_enabled() and not return_raylen:
+        if False and self.basis_type != BASIS_TYPE_MLP and imrend_fn_name in _C.__dict__ and not torch.is_grad_enabled() and not return_raylen:
             # Use the fast image render kernel if available
             cu_fn = _C.__dict__[imrend_fn_name]
             return cu_fn(
@@ -2355,3 +2355,8 @@ class SparseGrid(nn.Module):
             raise NotImplementedError("Unsupported initialization", init_type)
         self.basis_data.data[:] = sph_vals.view(
                     basis_reso, basis_reso, basis_reso, n_comps).to(device=self.basis_data.device)
+
+### MSHE START
+if __name__ == "__main__":
+    grid = SparseGrid(256, radius=[1.0, 1.0, 1.0], center=[0.0, 0.0, 0.0], device='cpu')
+### MSHE END

@@ -18,12 +18,13 @@ def render_unw_image(grid: svox2.SparseGrid, camera: svox2.Camera, device=Union[
     grid.to(device)
     rays = cam.gen_rays()
     dirs = rays.dirs / torch.norm(rays.dirs, dim=-1, keepdim=True)
-    # viewdirs = dirs
-    # gsz = grid._grid_size()
-    # dirs = dirs * (grid._scaling * gsz).to(device=dirs.device)
-    # delta_scale = 1.0 / dirs.norm(dim=1)
-    # dirs *= delta_scale.unsqueeze(-1)
-    sh_mult = eval_sh_bases(grid.basis_dim, dirs)
+    viewdirs = dirs
+    gsz = grid._grid_size()
+    dirs = dirs * (grid._scaling * gsz).to(device=dirs.device)
+    delta_scale = 1.0 / dirs.norm(dim=1)
+    dirs *= delta_scale.unsqueeze(-1)
+    sh_mult = eval_sh_bases(grid.basis_dim, viewdirs)
+    
     all_depths = []
     for batch_start in range(0, camera.height * camera.width, batch_size):
         depths = grid.volume_render_depth(rays[batch_start: batch_start+ batch_size], sigma_thresh)
