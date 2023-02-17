@@ -1,5 +1,5 @@
-from defs import *
-import utils # MSHE Note that if you want to run directly from this script, you have to remove `.` in the beginning
+from .defs import *
+from . import utils # MSHE Note that if you want to run directly from this script, you have to remove `.` in the beginning
 import torch
 from torch import nn, autograd
 import torch.nn.functional as F
@@ -1156,7 +1156,7 @@ class SparseGrid(nn.Module):
         :return: (H, W, 3), predicted RGB image
         """
         imrend_fn_name = f"volume_render_{self.opt.backend}_image"
-        if False and self.basis_type != BASIS_TYPE_MLP and imrend_fn_name in _C.__dict__ and not torch.is_grad_enabled() and not return_raylen:
+        if self.basis_type != BASIS_TYPE_MLP and imrend_fn_name in _C.__dict__ and not torch.is_grad_enabled() and not return_raylen:
             # Use the fast image render kernel if available
             cu_fn = _C.__dict__[imrend_fn_name]
             return cu_fn(
@@ -2358,5 +2358,17 @@ class SparseGrid(nn.Module):
 
 ### MSHE START
 if __name__ == "__main__":
-    grid = SparseGrid(256, radius=[1.0, 1.0, 1.0], center=[0.0, 0.0, 0.0], device='cpu')
+    grid = SparseGrid([512, 512 ,512], radius=[0.5, 0.5, 0.5], center=[
+                     0.5, 0.5, 0.5], device='cpu')
+    # path = '../opt/ckpt/lego-debug/ckpt.npz'
+    # grid = SparseGrid.load(path, device='cpu')
+
+    print(f'grid center: {grid.center}')
+    print(f'grid radius: {grid.radius}')
+
+    print("Now test volume rendering")
+    c2w = torch.eye(4)
+    c2w[:3, 3] = torch.tensor([0.5, 0.5, 0.5])
+    camera = Camera(c2w, fx = 960, width=1000, height=1000)
+    img = grid.volume_render_image(camera)
 ### MSHE END

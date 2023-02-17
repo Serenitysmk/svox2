@@ -1,5 +1,5 @@
 import torch
-import svox2
+import svox2_my
 from svox2.utils import eval_sh_bases
 import os
 from os import path
@@ -61,7 +61,7 @@ render_dir = path.join(path.dirname(args.ckpt), 'play_renderer')
 dset = datasets[args.dataset_type](
     args.data_dir, split='test_train' if args.train else 'test', **config_util.build_data_options(args))
 
-grid = svox2.SparseGrid.load(args.ckpt, device=device)
+grid = svox2_my.SparseGrid.load(args.ckpt, device=device)
 
 config_util.setup_render_opts(grid.opt, args)
 
@@ -80,7 +80,7 @@ with torch.no_grad():
         dset_h, dset_w = dset.get_image_size(img_id)
         im_size = dset_h * dset_w
 
-        cam = svox2.Camera(c2ws[img_id],
+        cam = svox2_my.Camera(c2ws[img_id],
                            dset.intrins.get('fx', img_id),
                            dset.intrins.get('fy', img_id),
                            dset.intrins.get('cx', img_id),
@@ -106,10 +106,10 @@ with torch.no_grad():
         imageio.imwrite(img_depth_path, im_depth)
 
         # Render unwcolor image
-        im_unw = render_unw_image(grid, cam, device, args.sigma_thresh)
-        im_unw.clamp_(0.0, 1.0)
-        im_unw = im_unw.cpu().numpy()
-        im_unw = (im_unw * 255).astype(np.uint8)
-        im_unw_path = path.join(render_dir, f'{img_id:04d}_unw.png')
-        imageio.imwrite(im_unw_path, im_unw)
-        n_images_gen += 1
+        # im_unw = render_unw_image(grid, cam, device, args.sigma_thresh)
+        # im_unw.clamp_(0.0, 1.0)
+        # im_unw = im_unw.cpu().numpy()
+        # im_unw = (im_unw * 255).astype(np.uint8)
+        # im_unw_path = path.join(render_dir, f'{img_id:04d}_unw.png')
+        # imageio.imwrite(im_unw_path, im_unw)
+        # n_images_gen += 1

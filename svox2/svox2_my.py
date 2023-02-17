@@ -7,6 +7,9 @@ from typing import Union, List, NamedTuple, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
 from functools import reduce
+from . import utils
+
+import matplotlib.pyplot as plt
 
 BASIS_TYPE_SH = 1
 BASIS_TYPE_3D_TEXTURE = 4
@@ -342,8 +345,144 @@ class SparseGrid(nn.Module):
         origins = self.world2grid(rays.origins)
         dirs = rays.dirs / torch.norm(rays.dirs, dim=-1, keepdim=True)
         viewdirs = dirs
+        B = dirs.size(0)
+        assert origins.size(0) == B
+        # I don't understand this part
+        gsz = self._grid_size()
+        dirs = dirs * (self._scaling * gsz).to(device=dirs.device) # Direction in grid coordinate system (imagine a rectanguler is pressed into a cube, then ray direction must be changed)
+        delta_scale = 1.0 / dirs.norm(dim=1) # Just normalize into a unit vector
+        dirs *= delta_scale.unsqueeze(-1) 
+
+        if self.basis_type != BASIS_TYPE_SH:
+            raise NotImplementedError("Guess what, I don't want to implement this")
+        else:
+            sh_mult = utils.eval_sh_bases(self.basis_dim, viewdirs)
+        invdirs = 1.0 / dirs # What do you want to get from a invert direction like this
+        gsz_cu = gsz.to(device=dirs.device)
+        t1 = (-0.5 - origins) * invdirs
+        t2 = (gsz_cu - 0.5 - origins) * invdirs
         
-        return
+        ### This part compute the starting distance and ending distance for ray marching.
+        ### Didn't really understand it, but, just continue pretend that I understood
+        t = torch.min(t1, t2)
+        t[dirs == 0] = -1e9
+        t = torch.max(t, dim=-1).values.clamp_min_(self.opt.near_clip)
+
+        tmax = torch.max(t1, t2)
+        tmax[dirs == 0] = 1e9
+        tmax = torch.min(tmax, dim=-1).values
+        if return_raylen:
+            return tmax - t
+        
+        log_light_intensity = torch.zeros(B, device=origins.device)
+        out_rgb = torch.zeros((B,3), device=origins.device)
+        good_indices = torch.arange(B, device=origins.device)
+
+        origins_ini = origins
+        dirs_ini = dirs
+
+        mask = t <= tmax
+        good_indices = good_indices[mask]
+        origins = origins[mask]
+        dirs = dirs[mask]
+
+        del invdirs
+        t = t[mask]
+        sh_mult = sh_mult[mask]
+        tmax = tmax[mask]
+
+        N_iter = 0
+        print('Ray marching forward')
+        while good_indices.numel() > 0:
+            print(f'Marching iter: {N_iter}')
+            pos = origins + t[:, None] * dirs
+            pos = pos.clamp_min_(0.0)
+            pos[:, 0] = torch.clamp_max(pos[:, 0], gsz_cu[0] - 1)
+            pos[:, 1] = torch.clamp_max(pos[:, 1], gsz_cu[1] - 1)
+            pos[:, 2] = torch.clamp_max(pos[:, 2], gsz_cu[2] - 1)
+
+            l = pos.to(torch.long)
+            l.clamp_min_(0)
+            l[:, 0] = torch.clamp_max(l[:, 0], gsz_cu[0] - 2)
+            l[:, 1] = torch.clamp_max(l[:, 1], gsz_cu[1] - 2)
+            l[:, 2] = torch.clamp_max(l[:, 2], gsz_cu[2] - 2)
+            
+            pos -= l
+            wa, wb = 1.0 - pos, pos
+
+            # BEGIN CRAZY TRILERP
+            lx, ly, lz = l.unbind(-1)
+            links000 = self.links[lx, ly, lz]
+            links001 = self.links[lx, ly, lz + 1]
+            links010 = self.links[lx, ly + 1, lz]
+            links011 = self.links[lx, ly + 1, lz + 1]
+            links100 = self.links[lx + 1, ly, lz]
+            links101 = self.links[lx + 1, ly, lz + 1]
+            links110 = self.links[lx + 1, ly + 1, lz]
+            links111 = self.links[lx + 1, ly + 1, lz + 1]
+
+            sigma000, rgb000 = self._fetch_links(links000)
+            sigma001, rgb001 = self._fetch_links(links001)
+            sigma010, rgb010 = self._fetch_links(links010)
+            sigma011, rgb011 = self._fetch_links(links011)
+            sigma100, rgb100 = self._fetch_links(links100)
+            sigma101, rgb101 = self._fetch_links(links101)
+            sigma110, rgb110 = self._fetch_links(links110)
+            sigma111, rgb111 = self._fetch_links(links111)
+
+            wa, wb = 1.0 - pos, pos
+            c00 = sigma000 * wa[:, 2:] + sigma001 * wb[:, 2:]
+            c01 = sigma010 * wa[:, 2:] + sigma011 * wb[:, 2:]
+            c10 = sigma100 * wa[:, 2:] + sigma101 * wb[:, 2:]
+            c11 = sigma110 * wa[:, 2:] + sigma111 * wb[:, 2:]
+            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
+            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
+            sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
+
+            c00 = rgb000 * wa[:, 2:] + rgb001 * wb[:, 2:]
+            c01 = rgb010 * wa[:, 2:] + rgb011 * wb[:, 2:]
+            c10 = rgb100 * wa[:, 2:] + rgb101 * wb[:, 2:]
+            c11 = rgb110 * wa[:, 2:] + rgb111 * wb[:, 2:]
+            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
+            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
+            rgb = c0 * wa[:, :1] + c1 * wb[:, :1]
+
+            # END CRAZY TRILERP
+            print(f'sigma shape: {sigma.shape}, color shape: {rgb.shape}')
+            log_att = (
+                -self.opt.step_size 
+                * torch.relu(sigma[..., 0])
+                * delta_scale[good_indices]
+            )
+            weight = torch.exp(log_light_intensity[good_indices]) * (1.0 - torch.exp(log_att))
+
+            # [B', 3, n_sh_coeffs]
+            rgb_sh = rgb.reshape(-1, 3, self.basis_dim) 
+            print(f'rgb_sh: {rgb_sh.shape}')
+            print(f'sh_mult: {sh_mult.shape}')
+            rgb = torch.clamp_min(
+                torch.sum(sh_mult.unsqueeze(-2) * rgb_sh, dim=-1) + 0.5, 0.0
+            ) # [B', 3]
+            rgb = weight[:, None] * rgb[:, :3]
+            out_rgb[good_indices] += rgb
+            log_light_intensity[good_indices] += log_att
+            t += self.opt.step_size
+
+            mask = t <= tmax
+            good_indices = good_indices[mask]
+            origins = origins[mask]
+            dirs = dirs[mask]
+
+            t = t[mask]
+            sh_mult = sh_mult[mask]
+            tmax = tmax[mask]
+            N_iter+=1
+        
+        # Add background color
+        if self.opt.background_brightness:
+            out_rgb += (torch.exp(log_light_intensity).unsqueeze(-1) * self.opt.background_brightness )
+            
+        return out_rgb
 
     def volume_render_image(self, camera: Camera, use_kernel: bool = False, randomize: bool = False, batch_size: int = 5000, return_raylen: bool = False):
         """
@@ -364,8 +503,8 @@ class SparseGrid(nn.Module):
                     rays[batch_start:batch_start+batch_size], use_kernel=use_kernel, randomize=randomize, return_raylen=return_raylen)
                 all_rgb_out.append(rgb_out_part)
                 break
-            #all_rgb_out = torch.cat(all_rgb_out, dim=0)
-        return None
+            all_rgb_out = torch.cat(all_rgb_out, dim=0)
+        return all_rgb_out.view(camera.height, camera.width, -1)
 
     def save(self, path: str, compress: bool = False):
         """
@@ -427,14 +566,18 @@ class SparseGrid(nn.Module):
 
 
 if __name__ == "__main__":
-    # grid = SparseGrid(256, radius=[1.0, 1.0, 1.0], center=[
-    #                  0.0, 0.0, 0.0], device='cpu')
-    path = '../opt/ckpt/lego-debug/ckpt.npz'
-    grid = SparseGrid.load(path, device='cpu')
+    grid = SparseGrid([512, 512 ,512], radius=[0.5, 0.5, 0.5], center=[
+                     0.5, 0.5, 0.5], device='cpu')
+    # path = '../opt/ckpt/lego-debug/ckpt.npz'
+    # grid = SparseGrid.load(path, device='cpu')
+
+    print(f'grid center: {grid.center}')
+    print(f'grid radius: {grid.radius}')
 
     print("Now test volume rendering")
     c2w = torch.eye(4)
+    c2w[:3, 3] = torch.tensor([0.5, 0.5, 0.5])
     camera = Camera(c2w, fx = 960, width=1000, height=1000)
-    img = grid.volume_render_image(camera)
+    img = grid.volume_render_image(camera, batch_size=10)
     print(img)
 
