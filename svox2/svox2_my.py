@@ -7,7 +7,7 @@ from typing import Union, List, NamedTuple, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
 from functools import reduce
-from . import utils
+import utils
 
 import matplotlib.pyplot as plt
 

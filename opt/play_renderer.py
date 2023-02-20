@@ -15,7 +15,11 @@ from typing import Union, Optional
 
 import matplotlib.pyplot as plt
 
-def volume_render_given_depth(grid: svox2.SparseGrid, rays: svox2.Rays, depths: torch.Tensor):
+
+def volume_render_given_depth(grid: svox2.SparseGrid,
+                              rays: svox2.Rays,
+                              depths: torch.Tensor,
+                              render_backscatter: bool = False):
     origins = grid.world2grid(rays.origins)
     dirs = rays.dirs / torch.norm(rays.dirs, dim=-1, keepdim=True)
     viewdirs = dirs
@@ -29,7 +33,8 @@ def volume_render_given_depth(grid: svox2.SparseGrid, rays: svox2.Rays, depths: 
     sh_mult = eval_sh_bases(grid.basis_dim, viewdirs)
 
     pts = grid.world2grid(rays.origins + depths[..., None] * viewdirs)
-    dist = (pts - origins).norm(dim=-1) # distance in the grid space from the depths values
+    dist = (pts - origins).norm(
+        dim=-1)  # distance in the grid space from the depths values
 
     gsz_cu = gsz.to(device=dirs.device)
     invdirs = 1.0 / dirs
@@ -42,8 +47,12 @@ def volume_render_given_depth(grid: svox2.SparseGrid, rays: svox2.Rays, depths: 
     tmax = torch.max(t1, t2)
     tmax[dirs == 0] = 1e9
     tmax = torch.min(tmax, dim=-1).values
-    # Here we march the ray only starting from dist
-    t = torch.max(t, dist)    
+    if render_backscatter:
+        # Here we march along the ray starting from near clip and stop at the termination point
+        tmax = torch.min(tmax, dist)
+    else:
+        # Here we march along the ray starting from the termination point til the ray end.
+        t = torch.max(t, dist)
 
     log_light_intensity = torch.zeros(B, device=origins.device)
     out_rgb = torch.zeros((B, 3), device=origins.device)
@@ -106,16 +115,12 @@ def volume_render_given_depth(grid: svox2.SparseGrid, rays: svox2.Rays, depths: 
         c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
         c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
         rgb = c0 * wa[:, :1] + c1 * wb[:, :1]
-            # END CRAZY TRILERP
+        # END CRAZY TRILERP
 
-        log_att = (
-            -grid.opt.step_size
-            * torch.relu(sigma[..., 0])
-            * delta_scale[good_indices]
-        )
-        weight = torch.exp(log_light_intensity[good_indices]) * (
-            1.0 - torch.exp(log_att)
-        )
+        log_att = (-grid.opt.step_size * torch.relu(sigma[..., 0]) *
+                   delta_scale[good_indices])
+        weight = torch.exp(
+            log_light_intensity[good_indices]) * (1.0 - torch.exp(log_att))
         # [B', 3, n_sh_coeffs]
         rgb_sh = rgb.reshape(-1, 3, grid.basis_dim)
         rgb = torch.clamp_min(
@@ -134,49 +139,73 @@ def volume_render_given_depth(grid: svox2.SparseGrid, rays: svox2.Rays, depths: 
         t = t[mask]
         sh_mult = sh_mult[mask]
         tmax = tmax[mask]
-    
+
     if grid.opt.background_brightness:
-        out_rgb += (
-            torch.exp(log_light_intensity.unsqueeze(-1)
-                       * grid.opt.background_brightness)
-        )
+        out_rgb += (torch.exp(
+            log_light_intensity.unsqueeze(-1) *
+            grid.opt.background_brightness))
     return out_rgb
 
-def render_unw_image(grid: svox2.SparseGrid, camera: svox2.Camera, device=Union[torch.device, str], sigma_thresh: Optional[float] = None, batch_size: int = 5000) -> torch.Tensor:
+
+def render_unw_image(grid: svox2.SparseGrid,
+                     camera: svox2.Camera,
+                     device=Union[torch.device, str],
+                     sigma_thresh: Optional[float] = None,
+                     batch_size: int = 5000,
+                     render_backscatter: bool = False) -> torch.Tensor:
     grid.to(device)
     # Manully generate rays for now
     rays = cam.gen_rays()
 
     depths = []
     for batch_start in range(0, rays.origins.shape[0], batch_size):
-        depths.append(grid.volume_render_depth(rays[batch_start:batch_start+batch_size], sigma_thresh=sigma_thresh))
+        depths.append(
+            grid.volume_render_depth(rays[batch_start:batch_start +
+                                          batch_size],
+                                     sigma_thresh=sigma_thresh))
     depths = torch.cat(depths, dim=0)
 
     all_rgb_out = []
     for batch_start in range(0, rays.origins.shape[0], batch_size):
-        rgb_out_part = volume_render_given_depth(grid, rays[batch_start: batch_start+batch_size], depths[batch_start: batch_start+batch_size])
+        rgb_out_part = volume_render_given_depth(
+            grid, rays[batch_start:batch_start + batch_size],
+            depths[batch_start:batch_start + batch_size], render_backscatter)
         all_rgb_out.append(rgb_out_part)
-    
+
     all_rgb_out = torch.cat(all_rgb_out, dim=0)
     return all_rgb_out.view(camera.height, camera.width, -1)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('ckpt', type=str)
 
 config_util.define_common_args(parser)
 
-parser.add_argument("--train", action='store_true',
-                    default=False, help='render train set')
-parser.add_argument('--use_sigma_thresh', action='store_true',
-                    default=False, help='Use sigma thresh to render depth image')
-
+parser.add_argument("--train",
+                    action='store_true',
+                    default=False,
+                    help='render train set')
+parser.add_argument('--use_sigma_thresh',
+                    action='store_true',
+                    default=False,
+                    help='Use sigma thresh to render depth image')
+parser.add_argument('--render_unw',
+                    action='store_true',
+                    default=False,
+                    help='render unw image')
+parser.add_argument('--render_backscatter',
+                    action='store_true',
+                    default=False,
+                    help='render only backscatter')
 args = parser.parse_args()
 device = 'cuda:0'
 
 render_dir = path.join(path.dirname(args.ckpt), 'play_renderer')
 
 dset = datasets[args.dataset_type](
-    args.data_dir, split='test_train' if args.train else 'test', **config_util.build_data_options(args))
+    args.data_dir,
+    split='test_train' if args.train else 'test',
+    **config_util.build_data_options(args))
 
 grid = svox2.SparseGrid.load(args.ckpt, device=device)
 
@@ -202,32 +231,39 @@ with torch.no_grad():
                            dset.intrins.get('fy', img_id),
                            dset.intrins.get('cx', img_id),
                            dset.intrins.get('cy', img_id),
-                           dset_w, dset_h, ndc_coeffs=dset.ndc_coeffs)
+                           dset_w,
+                           dset_h,
+                           ndc_coeffs=dset.ndc_coeffs)
 
         im_gt = dset.gt[img_id].numpy()
 
-        # # Render RGB image
-        # im = grid.volume_render_image(cam, use_kernel=True)
-        # im.clamp_(0.0, 1.0)
-        # im = im.cpu().numpy()
-        # im = np.concatenate([im_gt, im], axis=1)
-        # img_path = path.join(render_dir, f'{img_id:04d}.png')
-        # im = (im * 255).astype(np.uint8)
-        # imageio.imwrite(img_path, im)
+        # Render RGB image
+        im = grid.volume_render_image(cam, use_kernel=True)
+        im.clamp_(0.0, 1.0)
+        im = im.cpu().numpy()
+        im = np.concatenate([im_gt, im], axis=1)
+        img_path = path.join(render_dir, f'{img_id:04d}.png')
+        im = (im * 255).astype(np.uint8)
+        imageio.imwrite(img_path, im)
 
-        # # # Render depth image
-        # im_depth = grid.volume_render_depth_image(cam)
-        # im_depth = viridis_cmap(im_depth.cpu())
-        # im_depth = (im_depth * 255).astype(np.uint8)
-        # img_depth_path = path.join(render_dir, f'{img_id:04d}_depth.png')
-        # imageio.imwrite(img_depth_path, im_depth)
+        # Render depth image
+        im_depth = grid.volume_render_depth_image(
+            cam, args.sigma_thresh if args.use_sigma_thresh else None)
+        im_depth = viridis_cmap(im_depth.cpu())
+        im_depth = (im_depth * 255).astype(np.uint8)
+        img_depth_path = path.join(render_dir, f'{img_id:04d}_depth.png')
+        imageio.imwrite(img_depth_path, im_depth)
 
-        # Render unwcolor image
-        im_unw = render_unw_image(grid, cam, device, args.sigma_thresh)
-        im_unw.clamp_(0.0, 1.0)
-        im_unw = im_unw.cpu().numpy()
-        im_unw = (im_unw * 255).astype(np.uint8)
-        im_unw_path = path.join(render_dir, f'{img_id:04d}_unw.png')
-        imageio.imwrite(im_unw_path, im_unw)
+        if args.render_unw:
+            # Render unwcolor image
+            im_unw = render_unw_image(
+                grid, cam, device,
+                args.sigma_thresh if args.use_sigma_thresh else None, render_backscatter=args.render_backscatter)
+            im_unw.clamp_(0.0, 1.0)
+            im_unw = im_unw.cpu().numpy()
+            im_unw = np.concatenate([im_gt, im_unw], axis=1)
+            im_unw_path = path.join(render_dir, f'{img_id:04d}_unw.png')
+            im_unw = (im_unw * 255).astype(np.uint8)
+            imageio.imwrite(im_unw_path, im_unw)
+
         n_images_gen += 1
-        break
