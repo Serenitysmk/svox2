@@ -394,7 +394,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run COLMAP baseline')
     parser.add_argument(
         'vids', type=str, nargs='+', help='path to root with frames folder')
-    parser.add_argument('--colmap-root', type=str, default='/home/sxyu/builds/colmap',
+    parser.add_argument('--colmap-root', type=str, default='/home/mshe/workspace/omv_src/colmap-project/colmap_eth/install',
                 help="COLMAP installation dir (only needed for vocab tree in case of sequential matcher)")
     parser.add_argument('--image-input', default='raw', help='location for source images')
     parser.add_argument('--mask-output', default='masks', help='location to store motion masks')
