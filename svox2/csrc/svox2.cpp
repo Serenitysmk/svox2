@@ -49,6 +49,10 @@ void volume_render_svox1_fused(SparseGridSpec &, RaysSpec &, RenderOptions &,
 //                                         RenderOptions &, Tensor, Tensor,
 //                                         GridOutputGrads &);
 
+/// MSHE START
+Tensor volume_render_cuvol_unw_image(SparseGridSpec &, CameraSpec &, RenderOptions &, Tensor);
+/// MSHE END
+
 // Misc
 Tensor dilate(Tensor);
 void accel_dist_prop(Tensor);
@@ -92,6 +96,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
   // _REG_FUNC(volume_render_cuvol_image);
   // _REG_FUNC(volume_render_cuvol_image_backward);
+
+  /// MSHE START
+  _REG_FUNC(volume_render_cuvol_unw_image);
+  /// MSHE END
 
   // Loss
   _REG_FUNC(tv);

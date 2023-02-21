@@ -76,22 +76,22 @@ with torch.no_grad():
 
         im_gt = dset.gt[img_id].numpy()
 
-        # Render RGB image
-        im = grid.volume_render_image(cam, use_kernel=True)
-        im.clamp_(0.0, 1.0)
-        im = im.cpu().numpy()
-        im = np.concatenate([im_gt, im], axis=1)
-        img_path = path.join(render_dir, f'{img_id:04d}.png')
-        im = (im * 255).astype(np.uint8)
-        imageio.imwrite(img_path, im)
+        # # Render RGB image
+        # im = grid.volume_render_image(cam, use_kernel=True)
+        # im.clamp_(0.0, 1.0)
+        # im = im.cpu().numpy()
+        # im = np.concatenate([im_gt, im], axis=1)
+        # img_path = path.join(render_dir, f'{img_id:04d}.png')
+        # im = (im * 255).astype(np.uint8)
+        # imageio.imwrite(img_path, im)
 
-        # Render depth image
-        im_depth = grid.volume_render_depth_image(
-            cam, args.sigma_thresh if args.use_sigma_thresh else None)
-        im_depth = viridis_cmap(im_depth.cpu())
-        im_depth = (im_depth * 255).astype(np.uint8)
-        img_depth_path = path.join(render_dir, f'{img_id:04d}_depth.png')
-        imageio.imwrite(img_depth_path, im_depth)
+        # # Render depth image
+        # im_depth = grid.volume_render_depth_image(
+        #     cam, args.sigma_thresh if args.use_sigma_thresh else None)
+        # im_depth = viridis_cmap(im_depth.cpu())
+        # im_depth = (im_depth * 255).astype(np.uint8)
+        # img_depth_path = path.join(render_dir, f'{img_id:04d}_depth.png')
+        # imageio.imwrite(img_depth_path, im_depth)
 
         if args.render_unw:
             # Render unwcolor image (integrated version)
@@ -107,3 +107,4 @@ with torch.no_grad():
             im_unw = (im_unw * 255).astype(np.uint8)
             imageio.imwrite(im_unw_path, im_unw)
         n_images_gen += 1
+        break

@@ -1351,23 +1351,24 @@ class SparseGrid(nn.Module):
         :param randomize: bool, whether to enable randomness
         :return (H, W, 3), predicted RGB image
         """
+        # Manually generate rays for now
+        rays = camera.gen_rays()
+        all_depths = []
+        for batch_start in range(0, camera.height * camera.width,
+                                 batch_size):
+            depths = self.volume_render_depth(
+                rays[batch_start:batch_start + batch_size], sigma_thresh)
+            all_depths.append(depths)
+        all_depths = torch.cat(all_depths, dim=0)
+
         imrend_fn_name = f"volume_render_{self.opt.backend}_unw_image"
         if self.basis_type != BASIS_TYPE_MLP and imrend_fn_name in _C.__dict__ and not torch.is_grad_enabled(
         ):
             # Use the fast image render kernel if available
-            print('Fast PyTorch-CUDA rendering version')
             cu_fn = _C.__dict__[imrend_fn_name]
+            return cu_fn(self._to_cpp(), camera._to_cpp(), self.opt._to_cpp(), all_depths)
         else:
-            # Manually generate rays for now
-            rays = camera.gen_rays()
-            all_depths = []
-            for batch_start in range(0, camera.height * camera.width,
-                                     batch_size):
-                depths = self.volume_render_depth(
-                    rays[batch_start:batch_start + batch_size], sigma_thresh)
-                all_depths.append(depths)
-            all_depths = torch.cat(all_depths, dim=0)
-
+            
             all_rgb_out = []
             for batch_start in range(0, camera.height * camera.width,
                                      batch_size):
