@@ -763,6 +763,17 @@ __launch_bounds__(TRACE_RAY_CUDA_THREADS, MIN_BLOCKS_PER_SM) __global__
   trace_ray_sigma_thresh(grid, ray_spec, opt, sigma_thresh, out + ray_id);
 }
 
+__launch_bounds__(TRACE_RAY_CUDA_THREADS, MIN_BLOCKS_PER_SM) __global__
+    void render_ray_unw_image_kernel(PackedSparseGridSpec grid, PackedCameraSpec cam, RenderOptions opt,
+                                    float* __restrict__ out,
+                                    float* __restrict__ log_transmit_out = nullptr){
+    printf("!!!!!! Hi I am here !!!!!!\n");
+    printf("!!!!!! Hi I am here !!!!!!\n");
+    printf("!!!!!! Hi I am here !!!!!!\n");
+    printf("!!!!!! Hi I am here !!!!!!\n");
+    printf("!!!!!! Hi I am here !!!!!!\n");
+}
+
 }  // namespace device
 
 torch::Tensor _get_empty_1d(const torch::Tensor& origins) {
@@ -835,8 +846,8 @@ torch::Tensor volume_render_cuvol_image(SparseGridSpec& grid, CameraSpec& cam,
   torch::Tensor log_transmit;
   if (use_background) {
     log_transmit = torch::empty({cam.height, cam.width}, options);
-  }
 
+  }
   {
     const int cuda_n_threads = TRACE_RAY_CUDA_THREADS;
     const int blocks = CUDA_N_BLOCKS_NEEDED(Q * WARP_SIZE, cuda_n_threads);
@@ -1016,13 +1027,13 @@ torch::Tensor volume_render_cuvol_unw_image(SparseGridSpec& grid,
                      .device(grid.sh_data.device())
                      .requires_grad(false);
 
-  torch::Tensor results = torch::empty({cam.height, cam.width, 3}, options);
+  torch::Tensor results = torch::zeros({cam.height, cam.width, 3}, options);
 
   torch::Tensor log_transmit;
   {
     const int cuda_n_threads = TRACE_RAY_CUDA_THREADS;
     const int blocks = CUDA_N_BLOCKS_NEEDED(Q * WARP_SIZE, cuda_n_threads);
-    device::render_ray_image_kernel<<<blocks, cuda_n_threads>>>(
+    device::render_ray_unw_image_kernel<<<blocks, cuda_n_threads>>>(
         grid, cam, opt,
         // Output
         results.data_ptr<float>(), nullptr);

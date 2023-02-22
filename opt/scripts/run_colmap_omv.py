@@ -3,7 +3,7 @@ Run COLMAP on a folder of images
 Requires colmap installed
 """
 # Copyright 2021 Oliver Wang (Adobe Research), with modifications by Alex Yu
-# Similar version also found https://github.com/kwea123/nsff_pl/blob/master/preprocess.py 
+# Similar version also found https://github.com/kwea123/nsff_pl/blob/master/preprocess.py
 
 import cv2
 import moviepy
@@ -21,58 +21,85 @@ import glob
 import numpy as np
 from tqdm import tqdm
 from warnings import warn
-
+from vendor.read_write_model import read_model, write_model, Camera
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
 def read_colmap(strPath):
     # https://github.com/colmap/colmap/blob/master/src/ui/model_viewer_widget.cc#L71
-    objIntrinsics = read_write_model.read_cameras_binary(strPath + '/cameras.bin')[1]
+    objIntrinsics = read_write_model.read_cameras_binary(strPath +
+                                                         '/cameras.bin')[1]
 
     objCameras = {}
 
     for intImage, objImage in enumerate(
-            read_write_model.read_images_binary(strPath + '/images.bin').values()):
+            read_write_model.read_images_binary(strPath +
+                                                '/images.bin').values()):
 
         npyIntrinsics = numpy.array(
             [[objIntrinsics.params[0], 0.0, objIntrinsics.params[1]],
-             [0.0, objIntrinsics.params[0], objIntrinsics.params[2]], [0.0, 0.0, 1.0]],
-            numpy.float32)
+             [0.0, objIntrinsics.params[0], objIntrinsics.params[2]],
+             [0.0, 0.0, 1.0]], numpy.float32)
         npyExtrinsics = numpy.zeros([3, 4], numpy.float32)
         npyExtrinsics[0:3, 0:3] = read_write_model.qvec2rotmat(
             objImage.qvec / (numpy.linalg.norm(objImage.qvec) + 0.0000001))
         npyExtrinsics[0:3, 3] = objImage.tvec
 
-        if objIntrinsics.model=='SIMPLE_RADIAL':
+        if objIntrinsics.model == 'SIMPLE_RADIAL':
             objCameras[objImage.name] = {
-                'model': objIntrinsics.model,
-                'intIdent': objImage.id,
-                'strImage': objImage.name,
-                'dblFocal': objIntrinsics.params[0],
-                'dblPrincipalX': objIntrinsics.params[1],
-                'dblPrincipalY': objIntrinsics.params[2],
-                'dblRadial': objIntrinsics.params[3],
-                'npyIntrinsics': npyIntrinsics,
-                'npyExtrinsics': npyExtrinsics,
-                'intPoints': [intPoint for intPoint in objImage.point3D_ids if intPoint != -1]
+                'model':
+                objIntrinsics.model,
+                'intIdent':
+                objImage.id,
+                'strImage':
+                objImage.name,
+                'dblFocal':
+                objIntrinsics.params[0],
+                'dblPrincipalX':
+                objIntrinsics.params[1],
+                'dblPrincipalY':
+                objIntrinsics.params[2],
+                'dblRadial':
+                objIntrinsics.params[3],
+                'npyIntrinsics':
+                npyIntrinsics,
+                'npyExtrinsics':
+                npyExtrinsics,
+                'intPoints': [
+                    intPoint for intPoint in objImage.point3D_ids
+                    if intPoint != -1
+                ]
             }
-        elif objIntrinsics.model=='SIMPLE_PINHOLE':
+        elif objIntrinsics.model == 'SIMPLE_PINHOLE':
             objCameras[objImage.name] = {
-                'model': objIntrinsics.model,
-                'intIdent': objImage.id,
-                'strImage': objImage.name,
-                'dblFocal': objIntrinsics.params[0],
-                'dblPrincipalX': objIntrinsics.params[1],
-                'dblPrincipalY': objIntrinsics.params[2],
-                'npyIntrinsics': npyIntrinsics,
-                'npyExtrinsics': npyExtrinsics,
-                'intPoints': [intPoint for intPoint in objImage.point3D_ids if intPoint != -1]
+                'model':
+                objIntrinsics.model,
+                'intIdent':
+                objImage.id,
+                'strImage':
+                objImage.name,
+                'dblFocal':
+                objIntrinsics.params[0],
+                'dblPrincipalX':
+                objIntrinsics.params[1],
+                'dblPrincipalY':
+                objIntrinsics.params[2],
+                'npyIntrinsics':
+                npyIntrinsics,
+                'npyExtrinsics':
+                npyExtrinsics,
+                'intPoints': [
+                    intPoint for intPoint in objImage.point3D_ids
+                    if intPoint != -1
+                ]
             }
 
     objPoints = []
 
     for intPoint, objPoint in enumerate(
-            read_write_model.read_points3D_binary(strPath + '/points3D.bin').values()):
+            read_write_model.read_points3D_binary(strPath +
+                                                  '/points3D.bin').values()):
         objPoints.append({
             'intIdent': objPoint.id,
             'npyLocation': objPoint.xyz,
@@ -86,7 +113,8 @@ def read_colmap(strPath):
 
     for strCamera in objCameras:
         objCameras[strCamera]['intPoints'] = [
-            intPointindices[intPoint] for intPoint in objCameras[strCamera]['intPoints']
+            intPointindices[intPoint]
+            for intPoint in objCameras[strCamera]['intPoints']
         ]
 
     return objCameras, objPoints
@@ -120,41 +148,48 @@ def generate_masks(vid_root, args, overwrite=False):
 
         im = cv2.imread(frame_fn)
 
-        humans_tens = torch.FloatTensor(im.shape[0], im.shape[1]).fill_(1.0).to(device)
+        humans_tens = torch.FloatTensor(im.shape[0],
+                                        im.shape[1]).fill_(1.0).to(device)
 
-        obj_predictions = maskrnn_model(
-            [torch.FloatTensor(im.transpose(2, 0, 1) / 255.0)[[2, 0, 1], :, :].to(device)])[0]
+        obj_predictions = maskrnn_model([
+            torch.FloatTensor(im.transpose(2, 0, 1) /
+                              255.0)[[2, 0, 1], :, :].to(device)
+        ])[0]
 
         for mask_ind in range(obj_predictions['masks'].size(0)):
             if obj_predictions['scores'][mask_ind].item() > 0.5:
                 if obj_predictions['labels'][mask_ind].item() == 1:
-                    humans_tens[obj_predictions['masks'][mask_ind, 0, :, :] > 0.5] = 0.0
+                    humans_tens[obj_predictions['masks'][mask_ind,
+                                                         0, :, :] > 0.5] = 0.0
 
                 elif obj_predictions['labels'][mask_ind].item() == 31:
-                    humans_tens[obj_predictions['masks'][mask_ind, 0, :, :] > 0.5] = 0.0
+                    humans_tens[obj_predictions['masks'][mask_ind,
+                                                         0, :, :] > 0.5] = 0.0
 
                 elif obj_predictions['labels'][mask_ind].item() == 32:
-                    humans_tens[obj_predictions['masks'][mask_ind, 0, :, :] > 0.5] = 0.0
+                    humans_tens[obj_predictions['masks'][mask_ind,
+                                                         0, :, :] > 0.5] = 0.0
 
                 elif obj_predictions['labels'][mask_ind].item() == 48:
-                    humans_tens[obj_predictions['masks'][mask_ind, 0, :, :] > 0.5] = 0.0
+                    humans_tens[obj_predictions['masks'][mask_ind,
+                                                         0, :, :] > 0.5] = 0.0
 
                 # dog
                 elif obj_predictions['labels'][mask_ind].item() == 18:
-                    humans_tens[obj_predictions['masks'][mask_ind, 0, :, :] > 0.5] = 0.0
+                    humans_tens[obj_predictions['masks'][mask_ind,
+                                                         0, :, :] > 0.5] = 0.0
 
-        mask_np = cv2.erode(
-            src=humans_tens.cpu().numpy(),
-            kernel=numpy.ones([3, 3], numpy.float32),
-            anchor=(-1, -1),
-            iterations=16,
-            borderType=cv2.BORDER_DEFAULT)
+        mask_np = cv2.erode(src=humans_tens.cpu().numpy(),
+                            kernel=numpy.ones([3, 3], numpy.float32),
+                            anchor=(-1, -1),
+                            iterations=16,
+                            borderType=cv2.BORDER_DEFAULT)
         mask_np = (mask_np * 255.0).clip(0.0, 255.0).astype(numpy.uint8)
 
         cv2.imwrite(filename=out_mask_fn, img=mask_np)
 
 
-def resize_frames(vid_root, args):
+def resize_frames(vid_root, args, overwrite=False):
     vid_name = os.path.basename(vid_root)
     frames_dir = os.path.join(vid_root, args.images_resized)
     os.makedirs(frames_dir, exist_ok=True)
@@ -176,12 +211,58 @@ def resize_frames(vid_root, args):
 
         # resize if too big
         if im.shape[1] > args.max_width or im.shape[0] > args.max_height:
-            factor = max(im.shape[1] / args.max_width, im.shape[0] / args.max_height)
+            factor = max(im.shape[1] / args.max_width,
+                         im.shape[0] / args.max_height)
             dsize = (int(im.shape[1] / factor), int(im.shape[0] / factor))
             im = cv2.resize(src=im, dsize=dsize, interpolation=cv2.INTER_AREA)
 
         cv2.imwrite(out_frame_fn, im)
     return factor
+
+
+def undistort_frames(vid_root, args):
+    vid_name = os.path.basename(vid_root)
+    frames_dir = os.path.join(vid_root, args.images_resized)
+    undist_dir = os.path.join(vid_root, args.undistorted_output)
+    os.makedirs(undist_dir, exist_ok=True)
+
+    sparse = os.path.join(vid_root, 'sparse', '0')
+    cameras, images, points3D = read_model(sparse)
+    out_cameras = {}
+    for img in tqdm(images.values(), desc=f'undistort frames: {vid_name}'):
+        in_fname = os.path.join(frames_dir, img.name)
+        out_fname = os.path.join(undist_dir, img.name)
+        camera = cameras[img.camera_id]
+        if camera.model == "OPENCV":
+            cam_matrix = np.array([[camera.params[0], 0.0, camera.params[2]],
+                                   [0.0, camera.params[1], camera.params[3]],
+                                   [0.0, 0.0, 1.0]])
+            dist_coeffs = np.array([
+                camera.params[4], camera.params[5], camera.params[6],
+                camera.params[7], 0.0
+            ])
+        else:
+            raise NotImplementedError(
+                "I am lazy, implement me please to support more camera models")
+        out_cam_matrix = cam_matrix.copy()
+        out_cam_matrix[1, 1] = out_cam_matrix[0, 0]
+        out_cameras[img.camera_id] = Camera(id=img.camera_id,
+                                            model="SIMPLE_PINHOLE",
+                                            width=camera.width,
+                                            height=camera.height,
+                                            params=np.array([
+                                                out_cam_matrix[0, 0],
+                                                out_cam_matrix[0, 2],
+                                                out_cam_matrix[1, 2]
+                                            ]))
+
+        im = cv2.imread(in_fname)
+        im_undist = cv2.undistort(src=im,
+                                  cameraMatrix=cam_matrix,
+                                  distCoeffs=dist_coeffs,
+                                  newCameraMatrix=out_cam_matrix)
+        cv2.imwrite(out_fname, im_undist)
+    write_model(out_cameras, images, points3D, sparse)
 
 def run_colmap(vid_root, args, factor, overwrite=False):
     max_num_matches = 132768
@@ -189,7 +270,7 @@ def run_colmap(vid_root, args, factor, overwrite=False):
 
     os.makedirs(os.path.join(vid_root, 'sparse'), exist_ok=True)
     colmap_path = os.path.join(args.colmap_root, 'bin', 'colmap')
-
+    
     extractor_cmd = f'''
         {colmap_path} feature_extractor \
             --database_path={vid_root}/database.db \
@@ -225,14 +306,23 @@ def run_colmap(vid_root, args, factor, overwrite=False):
                     line = file.readline().strip()
                     cam_model = line.split(' ')[0]
                     cam_params = line.split(' ')[1:]
-                    cam_params = ' '.join(cam_params)
-                    extractor_cmd += f' --ImageReader.Camera_model={cam_model}'
-                    extractor_cmd += f' --ImageReader.camera_params {cam_params}'
-                        
+                    if cam_model == "OPENCV":
+                        cam_params[0] = str(float(cam_params[0]) / factor)
+                        cam_params[1] = str(float(cam_params[1]) / factor)
+                        cam_params[2] = str(float(cam_params[2]) / factor)
+                        cam_params[3] = str(float(cam_params[3]) / factor)
+                    else:
+                        raise NotImplementedError(
+                            "I am lazy, implement me please to support more camera models!!"
+                        )
+                    cam_params = ','.join(cam_params)
+                    extractor_cmd += f' --ImageReader.camera_model={cam_model}'
+                    extractor_cmd += f' --ImageReader.camera_params="{cam_params}"'
         else:
-            print('--known-intrin given but intrinsics.txt does not exist in data')
+            print(
+                '--known-intrin given but intrinsics.txt does not exist in data'
+            )
     os.system(extractor_cmd)
-
     if not args.do_sequential:
         os.system(f'''
             {colmap_path} exhaustive_matcher \
@@ -254,40 +344,42 @@ def run_colmap(vid_root, args, factor, overwrite=False):
                 --SequentialMatching.loop_detection=1 \
                 --SequentialMatching.vocab_tree_path={args.colmap_root}/vocab_tree_flickr100K_words256K.bin'''
                   )
-
     mapper_cmd = f'''
         {colmap_path} mapper \
             --database_path={vid_root}/database.db \
             --image_path={vid_root}/{args.images_resized} \
             --output_path={vid_root}/sparse '''
-
     if known_intrin and args.fix_intrin:
         mapper_cmd += f''' \
             --Mapper.ba_refine_focal_length=0 \
             --Mapper.ba_refine_principal_point=0 \
             --Mapper.ba_refine_extra_params=0 '''
-
     os.system(mapper_cmd)
-    
     if not args.noradial:
-        print("Warning: I've found the undistorter to work very poorly, substantially reducing quality.")
-        print("A potential (fairly easy) improvement is to support OPENCV camera model in the codebase, "
-              "and without doing undistorting.")
-        undist_dir = os.path.join(vid_root, args.undistorted_output)
-        if not os.path.exists(undist_dir) or overwrite:
-            os.makedirs(undist_dir, exist_ok=True)
-            os.system(f'''
-                {colmap_path} image_undistorter \
-                    --input_path={vid_root}/sparse/0 \
-                    --image_path={vid_root}/{args.images_resized} \
-                    --output_path={vid_root} \
-                    --output_type=COLMAP''')
+        print(
+            "Warning: I've found the undistorter to work very poorly, substantially reducing quality."
+        )
+        print(
+            "A potential (fairly easy) improvement is to support OPENCV camera model in the codebase, "
+            "and without doing undistorting.")
+        undistort_frames(vid_root, args)
+        # undist_dir = os.path.join(vid_root, args.undistorted_output)
+        # if not os.path.exists(undist_dir) or overwrite:
+        #     os.makedirs(undist_dir, exist_ok=True)
+        #     os.system(f'''
+        #         {colmap_path} image_undistorter \
+        #             --input_path={vid_root}/sparse/0 \
+        #             --image_path={vid_root}/{args.images_resized} \
+        #             --output_path={vid_root} \
+        #             --output_type=COLMAP''')
 
 
 def render_movie(vid_root, args):
 
     vid_name = os.path.basename(os.path.abspath(vid_root))
-    files = sorted(glob.glob(os.path.join(vid_root, args.image_input , '*.png')) + glob.glob(os.path.join(vid_root, args.image_input , '*.jpg')))
+    files = sorted(
+        glob.glob(os.path.join(vid_root, args.image_input, '*.png')) +
+        glob.glob(os.path.join(vid_root, args.image_input, '*.jpg')))
     movie_fn = os.path.join(vid_root, f'{vid_name}_debug.mp4')
 
     #  if os.path.exists(movie_fn):
@@ -301,8 +393,8 @@ def render_movie(vid_root, args):
     debug_dir = os.path.join(vid_root, 'debug', 'frames')
     os.makedirs(debug_dir, exist_ok=True)
 
-    obj_cameras, obj_points = read_colmap(
-        os.path.join(vid_root, 'sparse', '0'))
+    obj_cameras, obj_points = read_colmap(os.path.join(vid_root, 'sparse',
+                                                       '0'))
 
     for file_idx, file in enumerate(tqdm(files, desc=f'render: {vid_name}')):
         fn = os.path.basename(file)
@@ -310,28 +402,36 @@ def render_movie(vid_root, args):
 
         if fn in obj_cameras:
             obj_camera = obj_cameras[fn]
-            if obj_camera['model']=='SIMPLE_RADIAL':
-                im = cv2.undistort(
-                    src=im,
-                    cameraMatrix=obj_camera['npyIntrinsics'],
-                    distCoeffs=(obj_camera['dblRadial'], obj_camera['dblRadial'], 0.0, 0.0))
-            elif obj_camera['model']=='SIMPLE_PINHOLE':
-                im = cv2.undistort(
-                    src=im,
-                    cameraMatrix=obj_camera['npyIntrinsics'],
-                    distCoeffs=(0.0,0.0,0.0,0.0))
+            if obj_camera['model'] == 'SIMPLE_RADIAL':
+                im = cv2.undistort(src=im,
+                                   cameraMatrix=obj_camera['npyIntrinsics'],
+                                   distCoeffs=(obj_camera['dblRadial'],
+                                               obj_camera['dblRadial'], 0.0,
+                                               0.0))
+            elif obj_camera['model'] == 'SIMPLE_PINHOLE':
+                im = cv2.undistort(src=im,
+                                   cameraMatrix=obj_camera['npyIntrinsics'],
+                                   distCoeffs=(0.0, 0.0, 0.0, 0.0))
 
-
-            for obj_point in [obj_points[int_point] for int_point in obj_camera['intPoints']]:
+            for obj_point in [
+                    obj_points[int_point]
+                    for int_point in obj_camera['intPoints']
+            ]:
                 npyPoint = numpy.append(obj_point['npyLocation'], 1.0)
-                npyPoint = numpy.matmul(obj_camera['npyIntrinsics'],
-                                        numpy.matmul(obj_camera['npyExtrinsics'], npyPoint))
+                npyPoint = numpy.matmul(
+                    obj_camera['npyIntrinsics'],
+                    numpy.matmul(obj_camera['npyExtrinsics'], npyPoint))
                 if npyPoint[2] < 0.0000001: continue
                 intX, intY = int(round(npyPoint[0] / npyPoint[2])), int(
                     round(npyPoint[1] / npyPoint[2]))
-                if intX not in range(im.shape[1]) or intY not in range(im.shape[0]):
+                if intX not in range(im.shape[1]) or intY not in range(
+                        im.shape[0]):
                     continue
-                cv2.circle(img=im, center=(intX, intY), radius=1, color=(255, 0, 255), thickness=2)
+                cv2.circle(img=im,
+                           center=(intX, intY),
+                           radius=1,
+                           color=(255, 0, 255),
+                           thickness=2)
 
         output_fn = f'{debug_dir}/{file_idx:05}.png'
 
@@ -339,12 +439,12 @@ def render_movie(vid_root, args):
 
     # write movie
     ffmpeg_params = [
-        '-crf', '5', '-pix_fmt', 'yuv420p', '-vf', 'pad=width=ceil(iw/2)*2:height=ceil(ih/2)*2'
+        '-crf', '5', '-pix_fmt', 'yuv420p', '-vf',
+        'pad=width=ceil(iw/2)*2:height=ceil(ih/2)*2'
     ]
-    moviepy.editor.ImageSequenceClip(
-        sequence=debug_dir, fps=25).write_videofile(
-            movie_fn, ffmpeg_params=ffmpeg_params)
-
+    moviepy.editor.ImageSequenceClip(sequence=debug_dir,
+                                     fps=25).write_videofile(
+                                         movie_fn, ffmpeg_params=ffmpeg_params)
 
 
 def compute_poses(vid_root, args, overwrite=False):
@@ -379,39 +479,84 @@ def preprocess(vid_root, args):
                 os.rename(src_path, os.path.join(frames_dir, fname))
 
     overwrite = True
-    factor = resize_frames(vid_root, args)
+    factor = resize_frames(vid_root, args, overwrite=overwrite)
     # colmap
     if args.use_masks:
-        generate_masks(vid_root, args, overwrite=overwrite)
+       generate_masks(vid_root, args, overwrite=overwrite)
     run_colmap(vid_root, args, factor, overwrite=overwrite)
     if args.debug:
-        render_movie(vid_root, args)
+       render_movie(vid_root, args)
 
 
 if __name__ == '__main__':
     # method expects a folder of videos, each one has an image sequence in "frames"
 
     parser = argparse.ArgumentParser(description='Run COLMAP baseline')
+    parser.add_argument('vids',
+                        type=str,
+                        nargs='+',
+                        help='path to root with frames folder')
     parser.add_argument(
-        'vids', type=str, nargs='+', help='path to root with frames folder')
-    parser.add_argument('--colmap-root', type=str, default='/home/mshe/workspace/omv_src/colmap-project/colmap_eth/install',
-                help="COLMAP installation dir (only needed for vocab tree in case of sequential matcher)")
-    parser.add_argument('--image-input', default='raw', help='location for source images')
-    parser.add_argument('--mask-output', default='masks', help='location to store motion masks')
-    parser.add_argument('--known-intrin', action='store_true', default=False, help='use intrinsics in <root>/intrinsics.txt if available')
-    parser.add_argument('--fix-intrin', action='store_true', default=False, help='fix intrinsics in bundle adjustment, only used if --known-intrin is given and intrinsics.txt exists')
-    parser.add_argument('--omv-intrin', action='store_true', default=True, help='use omv intrinsics in <root>/intrinsics.txt if available')
-    parser.add_argument('--debug', action='store_true', default=False, help='render debug video')
-    parser.add_argument('--noradial', action='store_true', default=True, help='do not use radial distortion')
-    parser.add_argument('--use-masks', action='store_true', default=False, help='use automatic masks')
+        '--colmap-root',
+        type=str,
+        default=
+        '/home/mshe/workspace/omv_src/colmap-project/colmap_eth/install',
+        help=
+        "COLMAP installation dir (only needed for vocab tree in case of sequential matcher)"
+    )
+    parser.add_argument('--image-input',
+                        default='raw',
+                        help='location for source images')
+    parser.add_argument('--mask-output',
+                        default='masks',
+                        help='location to store motion masks')
     parser.add_argument(
-                    '--images-resized', default='images_resized', help='location for resized/renamed images')
+        '--known-intrin',
+        action='store_true',
+        default=False,
+        help='use intrinsics in <root>/intrinsics.txt if available')
     parser.add_argument(
-        '--do-sequential', action='store_true', default=False, help='sequential rather than exhaustive matching')
-    parser.add_argument('--max-width', type=int, default=1280, help='max image width')
-    parser.add_argument('--max-height', type=int, default=768, help='max image height')
+        '--fix-intrin',
+        action='store_true',
+        default=False,
+        help=
+        'fix intrinsics in bundle adjustment, only used if --known-intrin is given and intrinsics.txt exists'
+    )
     parser.add_argument(
-            '--undistorted-output', default='images', help='location of undistorted images')
+        '--omv-intrin',
+        action='store_true',
+        default=True,
+        help='use omv intrinsics in <root>/intrinsics.txt if available')
+    parser.add_argument('--debug',
+                        action='store_true',
+                        default=False,
+                        help='render debug video')
+    parser.add_argument('--noradial',
+                        action='store_true',
+                        default=False,
+                        help='do not use radial distortion')
+    parser.add_argument('--use-masks',
+                        action='store_true',
+                        default=False,
+                        help='use automatic masks')
+    parser.add_argument('--images-resized',
+                        default='images_resized',
+                        help='location for resized/renamed images')
+    parser.add_argument('--do-sequential',
+                        action='store_true',
+                        default=False,
+                        help='sequential rather than exhaustive matching')
+    parser.add_argument('--max-width',
+                        type=int,
+                        default=1280,
+                        help='max image width')
+    parser.add_argument('--max-height',
+                        type=int,
+                        default=768,
+                        help='max image height')
+    parser.add_argument('--undistorted-output',
+                        default='images',
+                        help='location of undistorted images')
 
     args = parser.parse_args()
     if args.noradial:
