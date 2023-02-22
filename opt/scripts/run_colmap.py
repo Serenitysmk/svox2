@@ -154,7 +154,7 @@ def generate_masks(vid_root, args, overwrite=False):
         cv2.imwrite(filename=out_mask_fn, img=mask_np)
 
 
-def resize_frames(vid_root, args):
+def resize_frames(vid_root, args, overwrite=False):
     vid_name = os.path.basename(vid_root)
     frames_dir = os.path.join(vid_root, args.images_resized)
     os.makedirs(frames_dir, exist_ok=True)
@@ -368,7 +368,7 @@ def preprocess(vid_root, args):
                 os.rename(src_path, os.path.join(frames_dir, fname))
 
     overwrite = True
-    factor = resize_frames(vid_root, args)
+    factor = resize_frames(vid_root, args, overwrite=overwrite)
     # colmap
     if args.use_masks:
         generate_masks(vid_root, args, overwrite=overwrite)

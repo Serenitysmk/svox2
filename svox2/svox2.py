@@ -1362,6 +1362,7 @@ class SparseGrid(nn.Module):
         all_depths = torch.cat(all_depths, dim=0)
 
         imrend_fn_name = f"volume_render_{self.opt.backend}_unw_image"
+        #imrend_fn_name = "foo"
         if self.basis_type != BASIS_TYPE_MLP and imrend_fn_name in _C.__dict__ and not torch.is_grad_enabled(
         ):
             # Use the fast image render kernel if available

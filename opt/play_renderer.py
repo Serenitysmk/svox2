@@ -39,6 +39,9 @@ parser.add_argument('--render_backscatter',
 args = parser.parse_args()
 device = 'cuda:0'
 
+if not path.isfile(path.dirname(args.ckpt)):
+    args.ckpt = path.join(args.ckpt, 'ckpt.npz')
+
 render_dir = path.join(path.dirname(args.ckpt), 'play_renderer')
 
 dset = datasets[args.dataset_type](

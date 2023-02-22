@@ -764,14 +764,36 @@ __launch_bounds__(TRACE_RAY_CUDA_THREADS, MIN_BLOCKS_PER_SM) __global__
 }
 
 __launch_bounds__(TRACE_RAY_CUDA_THREADS, MIN_BLOCKS_PER_SM) __global__
-    void render_ray_unw_image_kernel(PackedSparseGridSpec grid, PackedCameraSpec cam, RenderOptions opt,
-                                    float* __restrict__ out,
-                                    float* __restrict__ log_transmit_out = nullptr){
-    printf("!!!!!! Hi I am here !!!!!!\n");
-    printf("!!!!!! Hi I am here !!!!!!\n");
-    printf("!!!!!! Hi I am here !!!!!!\n");
-    printf("!!!!!! Hi I am here !!!!!!\n");
-    printf("!!!!!! Hi I am here !!!!!!\n");
+    void render_ray_unw_image_kernel(
+        PackedSparseGridSpec grid, PackedCameraSpec cam, RenderOptions opt,
+        float* __restrict__ out,
+        float* __restrict__ log_transmit_out = nullptr) {
+  CUDA_GET_THREAD_ID(tid, cam.height * cam.width * WARP_SIZE);
+  const int ray_id = tid >> 5;
+  const int ray_blk_id = threadIdx.x >> 5;
+  const int lane_id = threadIdx.x & 0x1f;
+
+  if (lane_id >= grid.sh_data_dim) return;
+
+  const int ix = ray_id % cam.width;
+  const int iy = ray_id / cam.width;
+
+  __shared__ float sphfunc_val[TRACE_RAY_CUDA_RAYS_PER_BLOCK][9];
+  __shared__ SingleRaySpec ray_spec[TRACE_RAY_CUDA_RAYS_PER_BLOCK];
+  __shared__ typename WarpReducef::TempStorage
+      temp_storage[TRACE_RAY_CUDA_RAYS_PER_BLOCK];
+
+  cam2world_ray(ix, iy, cam, ray_spec[ray_blk_id].dir,
+                ray_spec[ray_blk_id].origin);
+  calc_sphfunc(grid, lane_id, ray_id, ray_spec[ray_blk_id].dir,
+               sphfunc_val[ray_blk_id]);
+  ray_find_bounds(ray_spec[ray_blk_id], grid, opt, ray_id);
+  __syncwarp((1U << grid.sh_data_dim) - 1);
+
+  trace_ray_cuvol(
+      grid, ray_spec[ray_blk_id], opt, lane_id, sphfunc_val[ray_blk_id],
+      temp_storage[ray_blk_id], out + ray_id * 3,
+      log_transmit_out == nullptr ? nullptr : log_transmit_out + ray_id);
 }
 
 }  // namespace device
@@ -846,7 +868,6 @@ torch::Tensor volume_render_cuvol_image(SparseGridSpec& grid, CameraSpec& cam,
   torch::Tensor log_transmit;
   if (use_background) {
     log_transmit = torch::empty({cam.height, cam.width}, options);
-
   }
   {
     const int cuda_n_threads = TRACE_RAY_CUDA_THREADS;

@@ -533,7 +533,7 @@ if __name__ == '__main__':
                         help='render debug video')
     parser.add_argument('--noradial',
                         action='store_true',
-                        default=False,
+                        default=True,
                         help='do not use radial distortion')
     parser.add_argument('--use-masks',
                         action='store_true',
